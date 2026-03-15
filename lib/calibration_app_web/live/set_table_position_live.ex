@@ -7,7 +7,7 @@ defmodule CalibrationAppWeb.SetTablePositionLive do
 
   # Dummy durations (ms) for Coarse and Fine rotation
   @coarse_duration_ms 3_000
-  @fine_duration_ms   2_000
+  @fine_duration_ms 2_000
 
   @impl true
   def mount(_params, _session, socket) do
@@ -129,7 +129,6 @@ defmodule CalibrationAppWeb.SetTablePositionLive do
     ~H"""
     <Layouts.app flash={@flash}>
       <div class="fixed inset-0 bg-[#0f0f0f] text-[#d1d1d1] flex flex-col overflow-hidden">
-
         <%!-- Top bar --%>
         <div class="flex items-center justify-between px-6 py-2 bg-[#1a1a1a] border-b border-[#2a2a2a]">
           <span class="text-white font-semibold tracking-wide text-sm">Calibration Setup</span>
@@ -147,7 +146,6 @@ defmodule CalibrationAppWeb.SetTablePositionLive do
 
         <%!-- Main content --%>
         <div class="flex flex-1 overflow-hidden">
-
           <%!-- Left: Camera feed --%>
           <div class="flex-[3] flex flex-col overflow-hidden min-w-0">
             <div class="flex-1 flex items-center justify-center bg-[#0f0f0f] p-4 overflow-hidden">
@@ -174,12 +172,16 @@ defmodule CalibrationAppWeb.SetTablePositionLive do
             <%!-- Status bar --%>
             <div class="flex items-center gap-8 px-6 py-2 bg-[#1a1a1a] border-t border-[#2a2a2a]">
               <div id="exposure-indicator" class="flex items-center gap-2">
-                <span class="text-xs font-semibold text-[#888] uppercase tracking-widest">Exposure</span>
+                <span class="text-xs font-semibold text-[#888] uppercase tracking-widest">
+                  Exposure
+                </span>
                 <span class="text-sm font-mono text-[#d1d1d1]">{@exposure}</span>
               </div>
               <div class="w-px h-4 bg-[#333]" />
               <div id="position-indicator" class="flex items-center gap-2">
-                <span class="text-xs font-semibold text-[#888] uppercase tracking-widest">Stage Position</span>
+                <span class="text-xs font-semibold text-[#888] uppercase tracking-widest">
+                  Stage Position
+                </span>
                 <span class="text-sm font-mono text-[#d1d1d1]">{@position}</span>
               </div>
             </div>
@@ -187,11 +189,15 @@ defmodule CalibrationAppWeb.SetTablePositionLive do
 
           <%!-- Right: Control panel --%>
           <div class="w-96 flex flex-col bg-[#1a1a1a] border-l border-[#2a2a2a] px-4 py-4 gap-4 overflow-y-auto">
-
             <%!-- Section 1: Free Rotation --%>
-            <div id="free-rotation-section" class="bg-[#242424] border border-[#333] rounded-lg px-4 py-3 flex flex-col gap-3">
+            <div
+              id="free-rotation-section"
+              class="bg-[#242424] border border-[#333] rounded-lg px-4 py-3 flex flex-col gap-3"
+            >
               <p class="text-xs font-semibold text-[#888] uppercase tracking-widest">Free Rotation</p>
-              <p class="text-sm text-[#999]">Manually rotate the table. Stop before running Coarse/Fine.</p>
+              <p class="text-sm text-[#999]">
+                Manually rotate the table. Stop before running Coarse/Fine.
+              </p>
               <button
                 id="free-rotation-btn"
                 phx-click="toggle_free"
@@ -202,7 +208,7 @@ defmodule CalibrationAppWeb.SetTablePositionLive do
                     do: "bg-red-600 hover:bg-red-700 text-white",
                     else: "bg-green-600 hover:bg-green-700 text-white"
                   ),
-                  (@active in [:coarse, :fine]) && "opacity-40 cursor-not-allowed"
+                  @active in [:coarse, :fine] && "opacity-40 cursor-not-allowed"
                 ]}
               >
                 {if @active == :free, do: "Stop", else: "Start"}
@@ -210,8 +216,13 @@ defmodule CalibrationAppWeb.SetTablePositionLive do
             </div>
 
             <%!-- Section 2: Coarse / Fine Rotation --%>
-            <div id="coarse-fine-section" class="bg-[#242424] border border-[#333] rounded-lg px-4 py-3 flex flex-col gap-3">
-              <p class="text-xs font-semibold text-[#888] uppercase tracking-widest">Coarse / Fine Rotation</p>
+            <div
+              id="coarse-fine-section"
+              class="bg-[#242424] border border-[#333] rounded-lg px-4 py-3 flex flex-col gap-3"
+            >
+              <p class="text-xs font-semibold text-[#888] uppercase tracking-widest">
+                Coarse / Fine Rotation
+              </p>
 
               <div class="flex flex-col gap-1">
                 <label for="scan-angle-input" class="text-xs text-[#888]">Scan Angle (+/-)</label>
@@ -228,7 +239,7 @@ defmodule CalibrationAppWeb.SetTablePositionLive do
                   class={[
                     "bg-[#1a1a1a] border border-[#333] rounded px-3 py-2 text-sm text-[#d1d1d1]",
                     "focus:outline-none focus:border-[#555] placeholder-[#555]",
-                    (@active != :none) && "opacity-40 cursor-not-allowed"
+                    @active != :none && "opacity-40 cursor-not-allowed"
                   ]}
                 />
               </div>
@@ -252,7 +263,7 @@ defmodule CalibrationAppWeb.SetTablePositionLive do
                     do: "bg-red-600 hover:bg-red-700 text-white",
                     else: "bg-green-600 hover:bg-green-700 text-white"
                   ),
-                  (@active == :free) && "opacity-40 cursor-not-allowed"
+                  @active == :free && "opacity-40 cursor-not-allowed"
                 ]}
               >
                 {if @active in [:coarse, :fine], do: "Stop", else: "Start"}
@@ -260,7 +271,10 @@ defmodule CalibrationAppWeb.SetTablePositionLive do
             </div>
 
             <%!-- Section 3: Outputs --%>
-            <div id="outputs-section" class="bg-[#242424] border border-[#333] rounded-lg px-4 py-3 flex flex-col gap-2">
+            <div
+              id="outputs-section"
+              class="bg-[#242424] border border-[#333] rounded-lg px-4 py-3 flex flex-col gap-2"
+            >
               <p class="text-xs font-semibold text-[#888] uppercase tracking-widest">Outputs</p>
 
               <div class="flex items-center justify-between">
@@ -277,7 +291,6 @@ defmodule CalibrationAppWeb.SetTablePositionLive do
                 </span>
               </div>
             </div>
-
           </div>
         </div>
       </div>
