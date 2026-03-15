@@ -106,13 +106,15 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLiveTest do
   test "clicking next starts auto exposure and shows running state", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/primary-alignment")
     view |> element("#next-btn") |> render_click()
-    assert has_element?(view, "#next-btn[disabled]")
+    assert has_element?(view, "#auto-exposure-panel")
+    refute has_element?(view, "#next-btn")
   end
 
   test "clicking next disables the button while running", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/primary-alignment")
     view |> element("#next-btn") |> render_click()
-    assert has_element?(view, "#next-btn[disabled]")
+    assert has_element?(view, "#auto-exposure-panel")
+    refute has_element?(view, "#next-btn")
   end
 
   test "after auto_exposure_done navigates to set-table-position", %{conn: conn} do

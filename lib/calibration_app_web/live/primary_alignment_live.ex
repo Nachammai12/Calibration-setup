@@ -123,6 +123,8 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
       |> assign(:exposure, roi["exposure"] || 72)
       |> assign(:position, roi["stage_position"] || "0.00 mm")
       |> assign(:auto_exposure_running, false)
+      |> assign(:auto_exposure_step, 1)
+      |> assign(:auto_exposure_token, 0)
       |> assign(:frame_token, initial_token)
       |> assign(:roi_centre_x, to_string(roi["centre_x"]))
       |> assign(:roi_centre_y, to_string(roi["centre_y"]))
@@ -169,6 +171,15 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
   end
 
   @impl true
+  def handle_info({:auto_exposure_step, step, token}, socket) do
+    if token != socket.assigns.auto_exposure_token do
+      {:noreply, socket}
+    else
+      {:noreply, assign(socket, :auto_exposure_step, step)}
+    end
+  end
+
+  @impl true
   def handle_info(:auto_exposure_done, socket) do
     socket =
       socket
@@ -202,11 +213,17 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
 
   @impl true
   def handle_event("next", _params, socket) do
+    new_token = socket.assigns.auto_exposure_token + 1
+
     socket =
       socket
       |> assign(:auto_exposure_running, true)
+      |> assign(:auto_exposure_step, 1)
+      |> assign(:auto_exposure_token, new_token)
       |> switch_image_set(:auto_exposure_running)
 
+    Process.send_after(self(), {:auto_exposure_step, 2, new_token}, 700)
+    Process.send_after(self(), {:auto_exposure_step, 3, new_token}, 1400)
     Process.send_after(self(), :auto_exposure_done, @auto_exposure_duration_ms)
     {:noreply, socket}
   end
@@ -291,155 +308,193 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
 
           <%!-- Right: Control panel --%>
           <div class="w-96 flex flex-col bg-[#1a1a1a] border-l border-[#2a2a2a] px-4 py-3 overflow-hidden">
-            <%!-- Instructions card --%>
-            <div
-              id="instructions-card"
-              class="bg-[#242424] border border-[#333] rounded-lg px-4 py-3 mb-3"
-            >
-              <p class="text-xs font-semibold text-[#888] uppercase tracking-widest mb-2">
-                Instructions
-              </p>
-              <ol class="text-sm text-[#d1d1d1] leading-relaxed list-none space-y-2">
-                <li class="flex gap-2">
-                  <span class="text-[#555] font-mono shrink-0">1.</span>
-                  <span>Observe the live camera feed.</span>
-                </li>
-                <li class="flex gap-2">
-                  <span class="text-[#555] font-mono shrink-0">2.</span>
-                  <span>
-                    Toggle the <span class="text-white font-semibold">Heatmap</span>
-                    to inspect intensity distribution.
-                  </span>
-                </li>
-                <li class="flex gap-2">
-                  <span class="text-[#555] font-mono shrink-0">3.</span>
-                  <span>
-                    Use <span class="text-white font-semibold">Adjust FOV</span>
-                    to set the field of view — enter the centre coordinates and radius.
-                  </span>
-                </li>
-                <li class="flex gap-2">
-                  <span class="text-[#555] font-mono shrink-0">4.</span>
-                  <span>
-                    When alignment looks correct, press
-                    <span class="text-white font-semibold">Next</span>
-                    to run auto exposure.
-                  </span>
-                </li>
-              </ol>
-            </div>
-
-            <%!-- Heatmap toggle --%>
-            <div class="bg-[#242424] border border-[#333] rounded-lg px-4 py-3 mb-3">
-              <p class="text-xs font-semibold text-[#888] uppercase tracking-widest mb-2">Heatmap</p>
+            <%= if @auto_exposure_running do %>
+              <%!-- Auto Exposure in-progress panel --%>
               <div
-                id="heatmap-toggle"
-                class="flex rounded overflow-hidden border border-[#444]"
-                data-state={if @image_set == :heatmap_on, do: "on", else: "off"}
+                id="auto-exposure-panel"
+                class="flex flex-col items-center justify-center flex-1 gap-6 py-8"
               >
-                <button
-                  id="heatmap-btn-off"
-                  phx-click="heatmap_off"
-                  class={[
-                    "flex-1 py-2 text-sm font-medium transition-colors duration-150",
-                    if(@image_set != :heatmap_on,
-                      do: "bg-blue-600 text-white",
-                      else: "bg-transparent text-[#555] hover:text-[#888]"
-                    )
-                  ]}
-                >
-                  OFF
-                </button>
-                <button
-                  id="heatmap-btn-on"
-                  phx-click="heatmap_on"
-                  class={[
-                    "flex-1 py-2 text-sm font-medium transition-colors duration-150",
-                    if(@image_set == :heatmap_on,
-                      do: "bg-blue-600 text-white",
-                      else: "bg-transparent text-[#555] hover:text-[#888]"
-                    )
-                  ]}
-                >
-                  ON
-                </button>
-              </div>
-            </div>
+                <%!-- Outer spinner --%>
+                <div class="w-14 h-14 rounded-full border-4 border-[#333] border-t-blue-500 animate-spin" />
 
-            <%!-- Adjust FOV --%>
-            <div
-              id="adjust-fov-card"
-              class="bg-[#242424] border border-[#333] rounded-lg px-4 py-3 mb-3"
-            >
-              <p class="text-xs font-semibold text-[#888] uppercase tracking-widest mb-2">
-                Adjust FOV
-              </p>
-              <div class={[
-                @image_set == :heatmap_on && "opacity-40 pointer-events-none"
-              ]}>
-                <form phx-change="update_roi" id="roi-form">
-                  <%!-- Centre X + Y side by side --%>
-                  <div class="flex gap-2 mb-2">
-                    <div class="flex-1">
-                      <label class="block text-xs text-[#888] mb-1">Centre X</label>
+                <%!-- Status steps --%>
+                <div class="flex flex-col gap-3 w-full">
+                  <%= for {label, step_num} <- [{"Analyzing exposure...", 1}, {"Adjusting gain...", 2}, {"Finalizing...", 3}] do %>
+                    <div class={[
+                      "flex items-center gap-3 px-3 py-2 rounded-lg transition-colors duration-300",
+                      cond do
+                        @auto_exposure_step == step_num -> "bg-[#1e2a3a] border border-blue-700"
+                        @auto_exposure_step > step_num -> "opacity-60"
+                        true -> "opacity-25"
+                      end
+                    ]}>
+                      <%= cond do %>
+                        <% @auto_exposure_step > step_num -> %>
+                          <.icon name="hero-check-circle" class="w-4 h-4 text-blue-400 shrink-0" />
+                        <% @auto_exposure_step == step_num -> %>
+                          <div class="w-4 h-4 rounded-full border-2 border-blue-400 border-t-transparent animate-spin shrink-0" />
+                        <% true -> %>
+                          <div class="w-4 h-4 rounded-full border-2 border-[#444] shrink-0" />
+                      <% end %>
+                      <span class={[
+                        "text-sm",
+                        if(@auto_exposure_step >= step_num, do: "text-[#d1d1d1]", else: "text-[#555]")
+                      ]}>
+                        {label}
+                      </span>
+                    </div>
+                  <% end %>
+                </div>
+              </div>
+            <% else %>
+              <%!-- Instructions card --%>
+              <div
+                id="instructions-card"
+                class="bg-[#242424] border border-[#333] rounded-lg px-4 py-3 mb-3"
+              >
+                <p class="text-xs font-semibold text-[#888] uppercase tracking-widest mb-2">
+                  Instructions
+                </p>
+                <ol class="text-sm text-[#d1d1d1] leading-relaxed list-none space-y-2">
+                  <li class="flex gap-2">
+                    <span class="text-[#555] font-mono shrink-0">1.</span>
+                    <span>Observe the live camera feed.</span>
+                  </li>
+                  <li class="flex gap-2">
+                    <span class="text-[#555] font-mono shrink-0">2.</span>
+                    <span>
+                      Toggle the <span class="text-white font-semibold">Heatmap</span>
+                      to inspect intensity distribution.
+                    </span>
+                  </li>
+                  <li class="flex gap-2">
+                    <span class="text-[#555] font-mono shrink-0">3.</span>
+                    <span>
+                      Use <span class="text-white font-semibold">Adjust FOV</span>
+                      to set the field of view — enter the centre coordinates and radius.
+                    </span>
+                  </li>
+                  <li class="flex gap-2">
+                    <span class="text-[#555] font-mono shrink-0">4.</span>
+                    <span>
+                      When alignment looks correct, press
+                      <span class="text-white font-semibold">Next</span>
+                      to run auto exposure.
+                    </span>
+                  </li>
+                </ol>
+              </div>
+
+              <%!-- Heatmap toggle --%>
+              <div class="bg-[#242424] border border-[#333] rounded-lg px-4 py-3 mb-3">
+                <p class="text-xs font-semibold text-[#888] uppercase tracking-widest mb-2">
+                  Heatmap
+                </p>
+                <div
+                  id="heatmap-toggle"
+                  class="flex rounded overflow-hidden border border-[#444]"
+                  data-state={if @image_set == :heatmap_on, do: "on", else: "off"}
+                >
+                  <button
+                    id="heatmap-btn-off"
+                    phx-click="heatmap_off"
+                    class={[
+                      "flex-1 py-2 text-sm font-medium transition-colors duration-150",
+                      if(@image_set != :heatmap_on,
+                        do: "bg-blue-600 text-white",
+                        else: "bg-transparent text-[#555] hover:text-[#888]"
+                      )
+                    ]}
+                  >
+                    OFF
+                  </button>
+                  <button
+                    id="heatmap-btn-on"
+                    phx-click="heatmap_on"
+                    class={[
+                      "flex-1 py-2 text-sm font-medium transition-colors duration-150",
+                      if(@image_set == :heatmap_on,
+                        do: "bg-blue-600 text-white",
+                        else: "bg-transparent text-[#555] hover:text-[#888]"
+                      )
+                    ]}
+                  >
+                    ON
+                  </button>
+                </div>
+              </div>
+
+              <%!-- Adjust FOV --%>
+              <div
+                id="adjust-fov-card"
+                class="bg-[#242424] border border-[#333] rounded-lg px-4 py-3 mb-3"
+              >
+                <p class="text-xs font-semibold text-[#888] uppercase tracking-widest mb-2">
+                  Adjust FOV
+                </p>
+                <div class={[
+                  @image_set == :heatmap_on && "opacity-40 pointer-events-none"
+                ]}>
+                  <form phx-change="update_roi" id="roi-form">
+                    <%!-- Centre X + Y side by side --%>
+                    <div class="flex gap-2 mb-2">
+                      <div class="flex-1">
+                        <label class="block text-xs text-[#888] mb-1">Centre X</label>
+                        <input
+                          id="roi-centre-x"
+                          type="number"
+                          name="centre_x"
+                          value={@roi_centre_x}
+                          class="w-full bg-[#1a1a1a] border border-[#444] rounded px-2 py-1.5 text-sm text-[#d1d1d1] focus:outline-none focus:border-blue-600"
+                        />
+                      </div>
+                      <div class="flex-1">
+                        <label class="block text-xs text-[#888] mb-1">Centre Y</label>
+                        <input
+                          id="roi-centre-y"
+                          type="number"
+                          name="centre_y"
+                          value={@roi_centre_y}
+                          class="w-full bg-[#1a1a1a] border border-[#444] rounded px-2 py-1.5 text-sm text-[#d1d1d1] focus:outline-none focus:border-blue-600"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label class="block text-xs text-[#888] mb-1">Radius</label>
                       <input
-                        id="roi-centre-x"
+                        id="roi-radius"
                         type="number"
-                        name="centre_x"
-                        value={@roi_centre_x}
+                        name="radius"
+                        value={@roi_radius}
                         class="w-full bg-[#1a1a1a] border border-[#444] rounded px-2 py-1.5 text-sm text-[#d1d1d1] focus:outline-none focus:border-blue-600"
                       />
                     </div>
-                    <div class="flex-1">
-                      <label class="block text-xs text-[#888] mb-1">Centre Y</label>
-                      <input
-                        id="roi-centre-y"
-                        type="number"
-                        name="centre_y"
-                        value={@roi_centre_y}
-                        class="w-full bg-[#1a1a1a] border border-[#444] rounded px-2 py-1.5 text-sm text-[#d1d1d1] focus:outline-none focus:border-blue-600"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label class="block text-xs text-[#888] mb-1">Radius</label>
-                    <input
-                      id="roi-radius"
-                      type="number"
-                      name="radius"
-                      value={@roi_radius}
-                      class="w-full bg-[#1a1a1a] border border-[#444] rounded px-2 py-1.5 text-sm text-[#d1d1d1] focus:outline-none focus:border-blue-600"
-                    />
-                  </div>
-                </form>
+                  </form>
+                </div>
+                <%= if @image_set == :heatmap_on do %>
+                  <p class="text-xs text-[#555] mt-1">To adjust FOV, turn the heatmap OFF first.</p>
+                <% end %>
               </div>
-              <%= if @image_set == :heatmap_on do %>
-                <p class="text-xs text-[#555] mt-1">To adjust FOV, turn the heatmap OFF first.</p>
-              <% end %>
-            </div>
 
-            <%!-- Spacer to push Next button to the bottom --%>
-            <div class="flex-1" />
+              <%!-- Spacer to push Next button to the bottom --%>
+              <div class="flex-1" />
 
-            <%!-- Next button — pinned to bottom --%>
-            <button
-              id="next-btn"
-              phx-click="next"
-              disabled={@auto_exposure_running}
-              class={[
-                "w-full py-2.5 rounded text-sm font-medium transition-colors duration-150",
-                if(@auto_exposure_running,
-                  do: "bg-[#333] text-[#555] cursor-not-allowed",
-                  else: "bg-blue-600 hover:bg-blue-700 text-white"
-                )
-              ]}
-            >
-              <%= if @auto_exposure_running do %>
-                Running...
-              <% else %>
+              <%!-- Next button — pinned to bottom --%>
+              <button
+                id="next-btn"
+                phx-click="next"
+                disabled={@auto_exposure_running}
+                class={[
+                  "w-full py-2.5 rounded text-sm font-medium transition-colors duration-150",
+                  if(@auto_exposure_running,
+                    do: "bg-[#333] text-[#555] cursor-not-allowed",
+                    else: "bg-blue-600 hover:bg-blue-700 text-white"
+                  )
+                ]}
+              >
                 Next
-              <% end %>
-            </button>
+              </button>
+            <% end %>
           </div>
         </div>
       </div>
