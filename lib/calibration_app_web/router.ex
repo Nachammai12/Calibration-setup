@@ -20,7 +20,6 @@ defmodule CalibrationAppWeb.Router do
     get "/", PageController, :home
     live "/primary-alignment", PrimaryAlignmentLive
     live "/set-table-position", SetTablePositionLive
-    live "/free-rotation", FreeRotationLive
   end
 
   # Other scopes may use custom stacks.
