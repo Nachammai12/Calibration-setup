@@ -1,21 +1,18 @@
 defmodule CalibrationAppWeb.PrimaryAlignmentLive do
   use CalibrationAppWeb, :live_view
 
-  @frame_interval_ms 600
   @auto_exposure_frame_interval_ms 5000
-
-  defp images_path(set) do
-    Path.join([
-      :code.priv_dir(:calibration_app) |> List.to_string(),
-      "static",
-      "images",
-      "primary_alignment",
-      Atom.to_string(set)
-    ])
-  end
+  @auto_exposure_duration_ms 2000
 
   defp load_images(set) do
-    path = images_path(set)
+    path =
+      Path.join([
+        :code.priv_dir(:calibration_app) |> List.to_string(),
+        "static",
+        "images",
+        "primary_alignment",
+        Atom.to_string(set)
+      ])
 
     case File.ls(path) do
       {:ok, files} ->
@@ -52,7 +49,7 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
 
     case File.read(path) do
       {:ok, data} -> Jason.decode!(data)
-      {:error, _} -> %{"centre_x" => 0, "centre_y" => 0, "radius" => 50}
+      {:error, _} -> %{"centre_x" => 500, "centre_y" => 500, "radius" => 500}
     end
   end
 
@@ -66,7 +63,7 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
   # Push ROI overlay event to the canvas hook.
   # Sends clear: true when heatmap is ON or auto exposure is running, otherwise sends current ROI values.
   defp push_roi_event(socket) do
-    if socket.assigns.image_set == :heatmap_on or
+    if socket.assigns.heatmap_on or
          Map.get(socket.assigns, :auto_exposure_running, false) do
       push_event(socket, "roi_updated", %{clear: true})
     else
@@ -79,63 +76,35 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
     end
   end
 
-  # Switch to a new image set, cancel any in-flight frame loops by bumping the frame_token
-  defp switch_image_set(socket, set) do
-    images = load_images(set)
-    current_image_data = read_image_data(images, 0)
-    new_token = socket.assigns.frame_token + 1
-
-    interval =
-      if set == :auto_exposure_running,
-        do: @auto_exposure_frame_interval_ms,
-        else: @frame_interval_ms
-
-    if length(images) > 1 do
-      Process.send_after(self(), {:next_frame, new_token}, interval)
-    end
-
-    socket
-    |> assign(:image_set, set)
-    |> assign(:images, images)
-    |> assign(:current_index, 0)
-    |> assign(:current_image_data, current_image_data)
-    |> assign(:frame_token, new_token)
-    |> push_roi_event()
-  end
-
-  @auto_exposure_duration_ms 2000
-
   @impl true
   def mount(_params, _session, socket) do
-    images = load_images(:live_mode)
-    current_index = 0
-    current_image_data = read_image_data(images, current_index)
-    initial_token = 0
     roi = load_roi_defaults()
+
+    # Get initial image (stage=0, heatmap off = live mode)
+    initial_image_data =
+      case CalibrationApp.HeatmapPipeline.get_image(0, false) do
+        {:ok, data} -> data
+        {:error, _} -> nil
+      end
 
     socket =
       socket
       |> assign(:page_title, "Primary Alignment")
-      |> assign(:image_set, :live_mode)
-      |> assign(:images, images)
-      |> assign(:current_index, current_index)
-      |> assign(:current_image_data, current_image_data)
+      |> assign(:alignment_stage, 0)
+      |> assign(:heatmap_on, false)
+      |> assign(:current_image_data, initial_image_data)
+      |> assign(:frame_token, 0)
       |> assign(:exposure, roi["exposure"] || 72)
       |> assign(:position, roi["stage_position"] || "0.00 mm")
       |> assign(:auto_exposure_running, false)
       |> assign(:auto_exposure_step, 1)
       |> assign(:auto_exposure_token, 0)
-      |> assign(:frame_token, initial_token)
       |> assign(:roi_centre_x, to_string(roi["centre_x"]))
       |> assign(:roi_centre_y, to_string(roi["centre_y"]))
       |> assign(:roi_radius, to_string(roi["radius"]))
 
     socket =
       if connected?(socket) do
-        if length(images) > 1 do
-          Process.send_after(self(), {:next_frame, initial_token}, @frame_interval_ms)
-        end
-
         push_roi_event(socket)
       else
         socket
@@ -154,13 +123,8 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
       next_index = rem(socket.assigns.current_index + 1, max(length(images), 1))
       current_image_data = read_image_data(images, next_index)
 
-      interval =
-        if socket.assigns.image_set == :auto_exposure_running,
-          do: @auto_exposure_frame_interval_ms,
-          else: @frame_interval_ms
-
       if length(images) > 1 do
-        Process.send_after(self(), {:next_frame, token}, interval)
+        Process.send_after(self(), {:next_frame, token}, @auto_exposure_frame_interval_ms)
       end
 
       {:noreply,
@@ -183,7 +147,6 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
   def handle_info(:auto_exposure_done, socket) do
     socket =
       socket
-      |> assign(:image_set, :auto_exposure_done)
       |> assign(:auto_exposure_running, false)
 
     {:noreply, push_navigate(socket, to: ~p"/set-table-position")}
@@ -191,12 +154,52 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
 
   @impl true
   def handle_event("heatmap_on", _params, socket) do
-    {:noreply, switch_image_set(socket, :heatmap_on)}
+    # First use: advance stage from 0 → 1. Subsequent: keep current stage.
+    new_stage =
+      if socket.assigns.alignment_stage == 0,
+        do: 1,
+        else: socket.assigns.alignment_stage
+
+    image_data =
+      case CalibrationApp.HeatmapPipeline.get_image(new_stage, true) do
+        {:ok, data} -> data
+        {:error, _} -> socket.assigns.current_image_data
+      end
+
+    socket =
+      socket
+      |> assign(:alignment_stage, new_stage)
+      |> assign(:heatmap_on, true)
+      |> assign(:current_image_data, image_data)
+      |> push_roi_event()
+
+    {:noreply, socket}
   end
 
   @impl true
   def handle_event("heatmap_off", _params, socket) do
-    {:noreply, switch_image_set(socket, :heatmap_off)}
+    # Advance stage on heatmap OFF (simulates physical hardware adjustment), clamped at 3.
+    # Guard: if stage is 0 (heatmap_off fired before any heatmap_on — should not
+    # happen in normal UI flow), keep at 0 rather than silently advancing to 1.
+    new_stage =
+      if socket.assigns.alignment_stage == 0,
+        do: 0,
+        else: min(socket.assigns.alignment_stage + 1, 3)
+
+    image_data =
+      case CalibrationApp.HeatmapPipeline.get_image(new_stage, false) do
+        {:ok, data} -> data
+        {:error, _} -> socket.assigns.current_image_data
+      end
+
+    socket =
+      socket
+      |> assign(:alignment_stage, new_stage)
+      |> assign(:heatmap_on, false)
+      |> assign(:current_image_data, image_data)
+      |> push_roi_event()
+
+    {:noreply, socket}
   end
 
   @impl true
@@ -214,13 +217,25 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
   @impl true
   def handle_event("next", _params, socket) do
     new_token = socket.assigns.auto_exposure_token + 1
+    # Load all auto_exposure_running images and start the frame loop.
+    # The folder contains multiple images that cycle during the running state.
+    ae_images = load_images(:auto_exposure_running)
+    ae_image_data = read_image_data(ae_images, 0)
+
+    if length(ae_images) > 1 do
+      Process.send_after(self(), {:next_frame, new_token}, @auto_exposure_frame_interval_ms)
+    end
 
     socket =
       socket
       |> assign(:auto_exposure_running, true)
       |> assign(:auto_exposure_step, 1)
       |> assign(:auto_exposure_token, new_token)
-      |> switch_image_set(:auto_exposure_running)
+      |> assign(:images, ae_images)
+      |> assign(:current_index, 0)
+      |> assign(:current_image_data, ae_image_data)
+      |> assign(:frame_token, new_token)
+      |> push_roi_event()
 
     Process.send_after(self(), {:auto_exposure_step, 2, new_token}, 700)
     Process.send_after(self(), {:auto_exposure_step, 3, new_token}, 1400)
@@ -281,7 +296,7 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
                     <.icon name="hero-camera" class="w-16 h-16" />
                     <span class="text-sm">No images loaded</span>
                     <span class="text-xs text-[#333]">
-                      Drop images into images/primary_alignment/{Atom.to_string(@image_set)}/
+                      Drop images into images/primary_alignment/
                     </span>
                   </div>
                 <% end %>
@@ -393,14 +408,14 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
                 <div
                   id="heatmap-toggle"
                   class="flex rounded overflow-hidden border border-[#444]"
-                  data-state={if @image_set == :heatmap_on, do: "on", else: "off"}
+                  data-state={if @heatmap_on, do: "on", else: "off"}
                 >
                   <button
                     id="heatmap-btn-off"
                     phx-click="heatmap_off"
                     class={[
                       "flex-1 py-2 text-sm font-medium transition-colors duration-150",
-                      if(@image_set != :heatmap_on,
+                      if(not @heatmap_on,
                         do: "bg-blue-600 text-white",
                         else: "bg-transparent text-[#555] hover:text-[#888]"
                       )
@@ -413,7 +428,7 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
                     phx-click="heatmap_on"
                     class={[
                       "flex-1 py-2 text-sm font-medium transition-colors duration-150",
-                      if(@image_set == :heatmap_on,
+                      if(@heatmap_on,
                         do: "bg-blue-600 text-white",
                         else: "bg-transparent text-[#555] hover:text-[#888]"
                       )
@@ -433,7 +448,7 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
                   Adjust FOV
                 </p>
                 <div class={[
-                  @image_set == :heatmap_on && "opacity-40 pointer-events-none"
+                  @heatmap_on && "opacity-40 pointer-events-none"
                 ]}>
                   <form phx-change="update_roi" id="roi-form">
                     <%!-- Centre X + Y side by side --%>
@@ -471,29 +486,28 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
                     </div>
                   </form>
                 </div>
-                <%= if @image_set == :heatmap_on do %>
+                <%= if @heatmap_on do %>
                   <p class="text-xs text-[#555] mt-1">To adjust FOV, turn the heatmap OFF first.</p>
                 <% end %>
               </div>
 
-              <%!-- Spacer to push Next button to the bottom --%>
-              <div class="flex-1" />
-
               <%!-- Next button — pinned to bottom --%>
-              <button
-                id="next-btn"
-                phx-click="next"
-                disabled={@auto_exposure_running}
-                class={[
-                  "w-full py-2.5 rounded text-sm font-medium transition-colors duration-150",
-                  if(@auto_exposure_running,
-                    do: "bg-[#333] text-[#555] cursor-not-allowed",
-                    else: "bg-blue-600 hover:bg-blue-700 text-white"
-                  )
-                ]}
-              >
-                Next
-              </button>
+              <div class="mt-auto pt-2 flex gap-3">
+                <button
+                  id="next-btn"
+                  phx-click="next"
+                  disabled={@auto_exposure_running}
+                  class={[
+                    "w-1/2 ml-auto py-2.5 rounded text-sm font-medium transition-colors duration-150",
+                    if(@auto_exposure_running,
+                      do: "bg-[#333] text-[#555] cursor-not-allowed",
+                      else: "bg-blue-600 hover:bg-blue-700 text-white"
+                    )
+                  ]}
+                >
+                  Next
+                </button>
+              </div>
             <% end %>
           </div>
         </div>

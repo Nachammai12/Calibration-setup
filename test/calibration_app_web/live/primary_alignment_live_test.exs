@@ -132,4 +132,47 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLiveTest do
     # We assert the camera-feed panel renders (image or placeholder both valid)
     assert has_element?(view, "#camera-feed")
   end
+
+  # Alignment stage state machine tests
+
+  test "initial alignment_stage is 0 (live mode)", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    # Stage 0 = heatmap off, live mode image
+    assert has_element?(view, "#heatmap-toggle[data-state=off]")
+  end
+
+  test "clicking heatmap ON for first time advances stage to 1", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    view |> element("#heatmap-btn-on") |> render_click()
+    # Stage 1, heatmap on — toggle shows ON state
+    assert has_element?(view, "#heatmap-toggle[data-state=on]")
+  end
+
+  test "clicking heatmap OFF after first ON advances stage to 2", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    view |> element("#heatmap-btn-on") |> render_click()
+    view |> element("#heatmap-btn-off") |> render_click()
+    # Stage 2, heatmap off
+    assert has_element?(view, "#heatmap-toggle[data-state=off]")
+  end
+
+  test "heatmap OFF at stage 3 does not advance past 3", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    # Reach stage 3: ON (stage 1) → OFF (stage 2) → ON (stage 2) → OFF (stage 3)
+    view |> element("#heatmap-btn-on") |> render_click()   # stage 0 → 1
+    view |> element("#heatmap-btn-off") |> render_click()  # stage 1 → 2
+    view |> element("#heatmap-btn-on") |> render_click()   # stage 2 (no change on ON)
+    view |> element("#heatmap-btn-off") |> render_click()  # stage 2 → 3
+    # Extra OFF at stage 3 — must stay at 3, not raise or go to 4
+    view |> element("#heatmap-btn-on") |> render_click()   # stage 3 (no change on ON)
+    view |> element("#heatmap-btn-off") |> render_click()  # stage 3 (clamped, no change)
+    assert has_element?(view, "#heatmap-toggle[data-state=off]")
+  end
+
+  test "ROI overlay is hidden when heatmap is ON", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    view |> element("#heatmap-btn-on") |> render_click()
+    # FOV card becomes disabled when heatmap is on
+    assert has_element?(view, "#adjust-fov-card .opacity-40")
+  end
 end

@@ -1,7 +1,7 @@
 {
-  "centre_x": 2400,
-  "centre_y": 2006,
-  "radius": 2400,
+  "centre_x": 500,
+  "centre_y": 500,
+  "radius": 500,
   "exposure": 72,
   "stage_position": "0.00 mm"
 }
