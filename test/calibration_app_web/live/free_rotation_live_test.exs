@@ -15,10 +15,10 @@ defmodule CalibrationAppWeb.FreeRotationLiveTest do
     assert has_element?(view, "#camera-feed")
   end
 
-  test "renders the step progress bar with Free Rotation active", %{conn: conn} do
+  test "renders the step progress bar with Set Table Position active", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/free-rotation")
     assert has_element?(view, "#step-bar")
-    assert has_element?(view, "#step-free-rotation.step-active")
+    assert has_element?(view, "#step-set-table-position.step-active")
   end
 
   test "renders the instructions card", %{conn: conn} do

@@ -21,11 +21,13 @@ defmodule CalibrationAppWeb.FreeRotationLive do
         |> assign(:rotating, false)
       end
 
+    roi = load_roi_defaults()
+
     socket =
       socket
       |> assign(:page_title, "Free Rotation")
-      |> assign(:exposure, 72)
-      |> assign(:position, "0.00 mm")
+      |> assign(:exposure, roi["exposure"] || 72)
+      |> assign(:position, roi["stage_position"] || "0.00 mm")
 
     {:ok, socket}
   end
@@ -49,6 +51,15 @@ defmodule CalibrationAppWeb.FreeRotationLive do
     {:noreply, assign(socket, :current_image_data, image_data)}
   end
 
+  defp load_roi_defaults do
+    path = Path.join(:code.priv_dir(:calibration_app), "static/roi_defaults.json")
+
+    case File.read(path) do
+      {:ok, data} -> Jason.decode!(data)
+      {:error, _} -> %{"exposure" => 72, "stage_position" => "0.00 mm"}
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -62,9 +73,10 @@ defmodule CalibrationAppWeb.FreeRotationLive do
           <div id="step-bar" class="flex items-center gap-3 text-xs font-medium">
             <span class="text-[#555]">Primary Alignment</span>
             <span class="text-[#333]">──────</span>
-            <span id="step-free-rotation" class="step-active text-white font-bold">
-              Free Rotation
-            </span>
+            <div id="step-set-table-position" class="step-active flex flex-col items-center">
+              <span class="text-white font-bold">Set Table Position</span>
+              <span class="text-[#888] text-[10px]">Free Rotation</span>
+            </div>
             <span class="text-[#333]">──────</span>
             <span class="text-[#555]">Result</span>
           </div>
