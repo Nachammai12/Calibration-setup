@@ -12,6 +12,9 @@ defmodule CalibrationApp.FreeRotationServer do
     GenServer.start_link(__MODULE__, :ok, gen_opts)
   end
 
+  @doc "PubSub topic used for image broadcasts."
+  def topic, do: @pubsub_topic
+
   @doc "Start the image loop. No-op if already rotating."
   def start_rotation(server \\ __MODULE__) do
     GenServer.call(server, :start_rotation)
@@ -31,15 +34,29 @@ defmodule CalibrationApp.FreeRotationServer do
 
   @impl true
   def init(:ok) do
-    {:ok, %{images: [], current_index: 0, current_image_data: nil, rotating: false, image_count: 0},
-     {:continue, :load_images}}
+    {:ok,
+     %{
+       images: [],
+       current_index: 0,
+       current_image_data: nil,
+       rotating: false,
+       image_count: 0,
+       timer_ref: nil
+     }, {:continue, :load_images}}
   end
 
   @impl true
   def handle_continue(:load_images, state) do
     images = load_images()
     current_image_data = Enum.at(images, 0)
-    {:noreply, %{state | images: images, current_image_data: current_image_data, image_count: length(images)}}
+
+    {:noreply,
+     %{
+       state
+       | images: images,
+         current_image_data: current_image_data,
+         image_count: length(images)
+     }}
   end
 
   @impl true
@@ -48,8 +65,8 @@ defmodule CalibrationApp.FreeRotationServer do
       if state.rotating do
         state
       else
-        Process.send_after(self(), :tick, @frame_interval_ms)
-        %{state | rotating: true}
+        ref = Process.send_after(self(), :tick, @frame_interval_ms)
+        %{state | rotating: true, timer_ref: ref}
       end
 
     {:reply, :ok, state}
@@ -57,7 +74,8 @@ defmodule CalibrationApp.FreeRotationServer do
 
   @impl true
   def handle_call(:stop_rotation, _from, state) do
-    {:reply, :ok, %{state | rotating: false}}
+    if state.timer_ref, do: Process.cancel_timer(state.timer_ref)
+    {:reply, :ok, %{state | rotating: false, timer_ref: nil}}
   end
 
   @impl true
@@ -66,6 +84,7 @@ defmodule CalibrationApp.FreeRotationServer do
       current_image_data: state.current_image_data,
       rotating: state.rotating
     }
+
     {:reply, reply, state}
   end
 
@@ -77,9 +96,8 @@ defmodule CalibrationApp.FreeRotationServer do
 
   @impl true
   def handle_info(:tick, state) do
-    images = state.images
     next_index = rem(state.current_index + 1, max(state.image_count, 1))
-    current_image_data = Enum.at(images, next_index)
+    current_image_data = Enum.at(state.images, next_index)
 
     if current_image_data do
       Phoenix.PubSub.broadcast(
@@ -89,9 +107,10 @@ defmodule CalibrationApp.FreeRotationServer do
       )
     end
 
-    Process.send_after(self(), :tick, @frame_interval_ms)
+    ref = Process.send_after(self(), :tick, @frame_interval_ms)
 
-    {:noreply, %{state | current_index: next_index, current_image_data: current_image_data}}
+    {:noreply,
+     %{state | current_index: next_index, current_image_data: current_image_data, timer_ref: ref}}
   end
 
   # ── Helpers ──────────────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@ defmodule CalibrationAppWeb.FreeRotationLive do
 
   alias CalibrationApp.FreeRotationServer
 
-  @pubsub_topic "free_rotation:images"
+  @pubsub_topic FreeRotationServer.topic()
 
   @impl true
   def mount(_params, _session, socket) do
@@ -55,8 +55,14 @@ defmodule CalibrationAppWeb.FreeRotationLive do
     path = Path.join(:code.priv_dir(:calibration_app), "static/roi_defaults.json")
 
     case File.read(path) do
-      {:ok, data} -> Jason.decode!(data)
-      {:error, _} -> %{"exposure" => 72, "stage_position" => "0.00 mm"}
+      {:ok, data} ->
+        case Jason.decode(data) do
+          {:ok, parsed} -> parsed
+          {:error, _} -> %{"exposure" => 72, "stage_position" => "0.00 mm"}
+        end
+
+      {:error, _} ->
+        %{"exposure" => 72, "stage_position" => "0.00 mm"}
     end
   end
 
@@ -106,7 +112,7 @@ defmodule CalibrationAppWeb.FreeRotationLive do
                     <.icon name="hero-camera" class="w-16 h-16" />
                     <span class="text-sm">No images loaded</span>
                     <span class="text-xs text-[#333]">
-                      Drop images into images/free_rotation/
+                      Drop images into priv/static/images/free_rotation/
                     </span>
                   </div>
                 <% end %>

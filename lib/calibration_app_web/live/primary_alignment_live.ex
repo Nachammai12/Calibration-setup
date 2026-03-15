@@ -5,7 +5,13 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
   @auto_exposure_frame_interval_ms 5000
 
   defp images_path(set) do
-    Path.join([:code.priv_dir(:calibration_app) |> List.to_string(), "static", "images", "primary_alignment", Atom.to_string(set)])
+    Path.join([
+      :code.priv_dir(:calibration_app) |> List.to_string(),
+      "static",
+      "images",
+      "primary_alignment",
+      Atom.to_string(set)
+    ])
   end
 
   defp load_images(set) do
@@ -60,7 +66,8 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
   # Push ROI overlay event to the canvas hook.
   # Sends clear: true when heatmap is ON or auto exposure is running, otherwise sends current ROI values.
   defp push_roi_event(socket) do
-    if socket.assigns.image_set == :heatmap_on or Map.get(socket.assigns, :auto_exposure_running, false) do
+    if socket.assigns.image_set == :heatmap_on or
+         Map.get(socket.assigns, :auto_exposure_running, false) do
       push_event(socket, "roi_updated", %{clear: true})
     else
       push_event(socket, "roi_updated", %{
@@ -77,7 +84,11 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
     images = load_images(set)
     current_image_data = read_image_data(images, 0)
     new_token = socket.assigns.frame_token + 1
-    interval = if set == :auto_exposure_running, do: @auto_exposure_frame_interval_ms, else: @frame_interval_ms
+
+    interval =
+      if set == :auto_exposure_running,
+        do: @auto_exposure_frame_interval_ms,
+        else: @frame_interval_ms
 
     if length(images) > 1 do
       Process.send_after(self(), {:next_frame, new_token}, interval)
@@ -140,7 +151,11 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
       images = socket.assigns.images
       next_index = rem(socket.assigns.current_index + 1, max(length(images), 1))
       current_image_data = read_image_data(images, next_index)
-      interval = if socket.assigns.image_set == :auto_exposure_running, do: @auto_exposure_frame_interval_ms, else: @frame_interval_ms
+
+      interval =
+        if socket.assigns.image_set == :auto_exposure_running,
+          do: @auto_exposure_frame_interval_ms,
+          else: @frame_interval_ms
 
       if length(images) > 1 do
         Process.send_after(self(), {:next_frame, token}, interval)
@@ -291,15 +306,25 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
                 </li>
                 <li class="flex gap-2">
                   <span class="text-[#555] font-mono shrink-0">2.</span>
-                  <span>Toggle the <span class="text-white font-semibold">Heatmap</span> to inspect intensity distribution.</span>
+                  <span>
+                    Toggle the <span class="text-white font-semibold">Heatmap</span>
+                    to inspect intensity distribution.
+                  </span>
                 </li>
                 <li class="flex gap-2">
                   <span class="text-[#555] font-mono shrink-0">3.</span>
-                  <span>Use <span class="text-white font-semibold">Adjust FOV</span> to set the field of view — enter the centre coordinates and radius.</span>
+                  <span>
+                    Use <span class="text-white font-semibold">Adjust FOV</span>
+                    to set the field of view — enter the centre coordinates and radius.
+                  </span>
                 </li>
                 <li class="flex gap-2">
                   <span class="text-[#555] font-mono shrink-0">4.</span>
-                  <span>When alignment looks correct, press <span class="text-white font-semibold">Next</span> to run auto exposure.</span>
+                  <span>
+                    When alignment looks correct, press
+                    <span class="text-white font-semibold">Next</span>
+                    to run auto exposure.
+                  </span>
                 </li>
               </ol>
             </div>

@@ -7,6 +7,9 @@ defmodule CalibrationAppWeb.FreeRotationLiveTest do
 
   setup do
     FreeRotationServer.stop_rotation()
+    # Sync the GenServer mailbox so any in-flight tick is flushed before the test runs
+    _ = :sys.get_state(FreeRotationServer)
+    on_exit(fn -> FreeRotationServer.stop_rotation() end)
     :ok
   end
 
