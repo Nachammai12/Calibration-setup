@@ -1,49 +1,6 @@
 defmodule CalibrationAppWeb.PrimaryAlignmentLive do
   use CalibrationAppWeb, :live_view
 
-  @auto_exposure_frame_interval_ms 5000
-  @auto_exposure_duration_ms 2000
-
-  defp load_images(set) do
-    path =
-      Path.join([
-        :code.priv_dir(:calibration_app) |> List.to_string(),
-        "static",
-        "images",
-        "primary_alignment",
-        Atom.to_string(set)
-      ])
-
-    case File.ls(path) do
-      {:ok, files} ->
-        files
-        |> Enum.filter(&String.match?(&1, ~r/\.(png|jpg|jpeg|gif)$/i))
-        |> Enum.sort()
-        |> Enum.map(&Path.join(path, &1))
-
-      {:error, _} ->
-        []
-    end
-  end
-
-  defp read_image_data(images, index) do
-    case Enum.at(images, index) do
-      nil ->
-        nil
-
-      path ->
-        case File.read(path) do
-          {:ok, data} ->
-            ext = path |> Path.extname() |> String.downcase() |> String.trim_leading(".")
-            mime = if ext in ["jpg", "jpeg"], do: "image/jpeg", else: "image/#{ext}"
-            "data:#{mime};base64,#{Base.encode64(data)}"
-
-          {:error, _} ->
-            nil
-        end
-    end
-  end
-
   defp load_roi_defaults do
     path = Path.join(:code.priv_dir(:calibration_app), "static/roi_defaults.json")
 
@@ -93,12 +50,10 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
       |> assign(:alignment_stage, 0)
       |> assign(:heatmap_on, false)
       |> assign(:current_image_data, initial_image_data)
-      |> assign(:frame_token, 0)
       |> assign(:exposure, roi["exposure"] || 72)
       |> assign(:position, roi["stage_position"] || "0.00 mm")
       |> assign(:auto_exposure_running, false)
-      |> assign(:auto_exposure_step, 1)
-      |> assign(:auto_exposure_token, 0)
+      |> assign(:ae_iteration, 0)
       |> assign(:roi_centre_x, to_string(roi["centre_x"]))
       |> assign(:roi_centre_y, to_string(roi["centre_y"]))
       |> assign(:roi_radius, to_string(roi["radius"]))
@@ -114,42 +69,29 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
   end
 
   @impl true
-  def handle_info({:next_frame, token}, socket) do
-    # Ignore stale frame messages from a previous image set
-    if token != socket.assigns.frame_token do
-      {:noreply, socket}
-    else
-      images = socket.assigns.images
-      next_index = rem(socket.assigns.current_index + 1, max(length(images), 1))
-      current_image_data = read_image_data(images, next_index)
+  def handle_info({:ae_iteration, image_data, exposure, _good?}, socket) do
+    socket =
+      socket
+      |> assign(:current_image_data, image_data || socket.assigns.current_image_data)
+      |> assign(:exposure, exposure)
+      |> assign(:ae_iteration, socket.assigns.ae_iteration + 1)
 
-      if length(images) > 1 do
-        Process.send_after(self(), {:next_frame, token}, @auto_exposure_frame_interval_ms)
-      end
-
-      {:noreply,
-       socket
-       |> assign(:current_index, next_index)
-       |> assign(:current_image_data, current_image_data)}
-    end
+    {:noreply, socket}
   end
 
   @impl true
-  def handle_info({:auto_exposure_step, step, token}, socket) do
-    if token != socket.assigns.auto_exposure_token do
-      {:noreply, socket}
-    else
-      {:noreply, assign(socket, :auto_exposure_step, step)}
-    end
+  def handle_info(:ae_done, socket) do
+    {:noreply, push_navigate(socket, to: ~p"/set-table-position")}
   end
 
   @impl true
-  def handle_info(:auto_exposure_done, socket) do
+  def handle_info({:ae_error, _reason}, socket) do
     socket =
       socket
       |> assign(:auto_exposure_running, false)
+      |> put_flash(:error, "Auto exposure failed. Please try again.")
 
-    {:noreply, push_navigate(socket, to: ~p"/set-table-position")}
+    {:noreply, socket}
   end
 
   @impl true
@@ -216,30 +158,21 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
 
   @impl true
   def handle_event("next", _params, socket) do
-    new_token = socket.assigns.auto_exposure_token + 1
-    # Load all auto_exposure_running images and start the frame loop.
-    # The folder contains multiple images that cycle during the running state.
-    ae_images = load_images(:auto_exposure_running)
-    ae_image_data = read_image_data(ae_images, 0)
+    topic = CalibrationApp.AutoExposureServer.pubsub_topic(self())
+    Phoenix.PubSub.subscribe(CalibrationApp.PubSub, topic)
 
-    if length(ae_images) > 1 do
-      Process.send_after(self(), {:next_frame, new_token}, @auto_exposure_frame_interval_ms)
-    end
+    {:ok, _pid} =
+      CalibrationApp.AutoExposureServer.start_link(%{
+        lv_pid: self(),
+        initial_exposure: 170
+      })
 
     socket =
       socket
       |> assign(:auto_exposure_running, true)
-      |> assign(:auto_exposure_step, 1)
-      |> assign(:auto_exposure_token, new_token)
-      |> assign(:images, ae_images)
-      |> assign(:current_index, 0)
-      |> assign(:current_image_data, ae_image_data)
-      |> assign(:frame_token, new_token)
+      |> assign(:ae_iteration, 0)
       |> push_roi_event()
 
-    Process.send_after(self(), {:auto_exposure_step, 2, new_token}, 700)
-    Process.send_after(self(), {:auto_exposure_step, 3, new_token}, 1400)
-    Process.send_after(self(), :auto_exposure_done, @auto_exposure_duration_ms)
     {:noreply, socket}
   end
 
@@ -332,33 +265,15 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
                 <%!-- Outer spinner --%>
                 <div class="w-14 h-14 rounded-full border-4 border-[#333] border-t-blue-500 animate-spin" />
 
-                <%!-- Status steps --%>
-                <div class="flex flex-col gap-3 w-full">
-                  <%= for {label, step_num} <- [{"Analyzing exposure...", 1}, {"Adjusting gain...", 2}, {"Finalizing...", 3}] do %>
-                    <div class={[
-                      "flex items-center gap-3 px-3 py-2 rounded-lg transition-colors duration-300",
-                      cond do
-                        @auto_exposure_step == step_num -> "bg-[#1e2a3a] border border-blue-700"
-                        @auto_exposure_step > step_num -> "opacity-60"
-                        true -> "opacity-25"
-                      end
-                    ]}>
-                      <%= cond do %>
-                        <% @auto_exposure_step > step_num -> %>
-                          <.icon name="hero-check-circle" class="w-4 h-4 text-blue-400 shrink-0" />
-                        <% @auto_exposure_step == step_num -> %>
-                          <div class="w-4 h-4 rounded-full border-2 border-blue-400 border-t-transparent animate-spin shrink-0" />
-                        <% true -> %>
-                          <div class="w-4 h-4 rounded-full border-2 border-[#444] shrink-0" />
-                      <% end %>
-                      <span class={[
-                        "text-sm",
-                        if(@auto_exposure_step >= step_num, do: "text-[#d1d1d1]", else: "text-[#555]")
-                      ]}>
-                        {label}
-                      </span>
-                    </div>
-                  <% end %>
+                <%!-- Live status --%>
+                <div class="flex flex-col items-center gap-2 text-center">
+                  <span class="text-sm font-medium text-[#d1d1d1]">Auto Exposure Running...</span>
+                  <span class="text-xs text-[#888]">
+                    Iteration: {@ae_iteration}
+                  </span>
+                  <span class="text-xs text-[#888]">
+                    Exposure: {@exposure}
+                  </span>
                 </div>
               </div>
             <% else %>
