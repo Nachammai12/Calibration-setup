@@ -31,16 +31,15 @@ defmodule CalibrationApp.FreeRotationServer do
 
   @impl true
   def init(:ok) do
+    {:ok, %{images: [], current_index: 0, current_image_data: nil, rotating: false, image_count: 0},
+     {:continue, :load_images}}
+  end
+
+  @impl true
+  def handle_continue(:load_images, state) do
     images = load_images()
     current_image_data = Enum.at(images, 0)
-
-    {:ok,
-     %{
-       images: images,
-       current_index: 0,
-       current_image_data: current_image_data,
-       rotating: false
-     }}
+    {:noreply, %{state | images: images, current_image_data: current_image_data, image_count: length(images)}}
   end
 
   @impl true
@@ -63,7 +62,11 @@ defmodule CalibrationApp.FreeRotationServer do
 
   @impl true
   def handle_call(:get_state, _from, state) do
-    {:reply, state, state}
+    reply = %{
+      current_image_data: state.current_image_data,
+      rotating: state.rotating
+    }
+    {:reply, reply, state}
   end
 
   @impl true
@@ -75,7 +78,7 @@ defmodule CalibrationApp.FreeRotationServer do
   @impl true
   def handle_info(:tick, state) do
     images = state.images
-    next_index = rem(state.current_index + 1, max(length(images), 1))
+    next_index = rem(state.current_index + 1, max(state.image_count, 1))
     current_image_data = Enum.at(images, next_index)
 
     if current_image_data do
