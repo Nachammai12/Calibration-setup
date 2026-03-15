@@ -4,14 +4,8 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLive do
   @frame_interval_ms 600
   @auto_exposure_frame_interval_ms 5000
 
-  # Resolves the root images/ folder at the repo level (two levels up from calibration_app/)
-  defp images_root do
-    app_dir = :code.priv_dir(:calibration_app) |> List.to_string()
-    Path.expand("../../../../../../images", app_dir)
-  end
-
   defp images_path(set) do
-    Path.join([images_root(), "primary_alignment", Atom.to_string(set)])
+    Path.join([:code.priv_dir(:calibration_app) |> List.to_string(), "static", "images", "primary_alignment", Atom.to_string(set)])
   end
 
   defp load_images(set) do
