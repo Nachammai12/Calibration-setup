@@ -120,7 +120,8 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLiveTest do
   test "after auto_exposure_done navigates to set-table-position", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/primary-alignment")
     view |> element("#next-btn") |> render_click()
-    send(view.pid, :auto_exposure_done)
+    send(view.pid, :ae_done)
+    send(view.pid, :ae_navigate)
     assert_redirect(view, "/set-table-position")
   end
 
@@ -159,13 +160,19 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLiveTest do
   test "heatmap OFF at stage 3 does not advance past 3", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/primary-alignment")
     # Reach stage 3: ON (stage 1) → OFF (stage 2) → ON (stage 2) → OFF (stage 3)
-    view |> element("#heatmap-btn-on") |> render_click()   # stage 0 → 1
-    view |> element("#heatmap-btn-off") |> render_click()  # stage 1 → 2
-    view |> element("#heatmap-btn-on") |> render_click()   # stage 2 (no change on ON)
-    view |> element("#heatmap-btn-off") |> render_click()  # stage 2 → 3
+    # stage 0 → 1
+    view |> element("#heatmap-btn-on") |> render_click()
+    # stage 1 → 2
+    view |> element("#heatmap-btn-off") |> render_click()
+    # stage 2 (no change on ON)
+    view |> element("#heatmap-btn-on") |> render_click()
+    # stage 2 → 3
+    view |> element("#heatmap-btn-off") |> render_click()
     # Extra OFF at stage 3 — must stay at 3, not raise or go to 4
-    view |> element("#heatmap-btn-on") |> render_click()   # stage 3 (no change on ON)
-    view |> element("#heatmap-btn-off") |> render_click()  # stage 3 (clamped, no change)
+    # stage 3 (no change on ON)
+    view |> element("#heatmap-btn-on") |> render_click()
+    # stage 3 (clamped, no change)
+    view |> element("#heatmap-btn-off") |> render_click()
     assert has_element?(view, "#heatmap-toggle[data-state=off]")
   end
 
