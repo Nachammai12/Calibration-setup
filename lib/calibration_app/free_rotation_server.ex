@@ -1,0 +1,139 @@
+defmodule CalibrationApp.FreeRotationServer do
+  use GenServer
+
+  @frame_interval_ms 600
+  @pubsub_topic "free_rotation:images"
+
+  # ── Public API ──────────────────────────────────────────────────────────────
+
+  def start_link(opts \\ []) do
+    name = Keyword.get(opts, :name, __MODULE__)
+    gen_opts = if name, do: [name: name], else: []
+    GenServer.start_link(__MODULE__, :ok, gen_opts)
+  end
+
+  @doc "Start the image loop. No-op if already rotating."
+  def start_rotation(server \\ __MODULE__) do
+    GenServer.call(server, :start_rotation)
+  end
+
+  @doc "Stop the image loop. Current frame is preserved."
+  def stop_rotation(server \\ __MODULE__) do
+    GenServer.call(server, :stop_rotation)
+  end
+
+  @doc "Return current state map for LiveView mount."
+  def get_state(server \\ __MODULE__) do
+    GenServer.call(server, :get_state)
+  end
+
+  # ── GenServer callbacks ──────────────────────────────────────────────────────
+
+  @impl true
+  def init(:ok) do
+    images = load_images()
+    current_image_data = read_image_data(images, 0)
+
+    {:ok,
+     %{
+       images: images,
+       current_index: 0,
+       current_image_data: current_image_data,
+       rotating: false
+     }}
+  end
+
+  @impl true
+  def handle_call(:start_rotation, _from, state) do
+    state =
+      if state.rotating do
+        state
+      else
+        Process.send_after(self(), :tick, @frame_interval_ms)
+        %{state | rotating: true}
+      end
+
+    {:reply, :ok, state}
+  end
+
+  @impl true
+  def handle_call(:stop_rotation, _from, state) do
+    {:reply, :ok, %{state | rotating: false}}
+  end
+
+  @impl true
+  def handle_call(:get_state, _from, state) do
+    {:reply, state, state}
+  end
+
+  @impl true
+  def handle_info(:tick, %{rotating: false} = state) do
+    # Rotation was stopped before this tick arrived; discard.
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:tick, state) do
+    images = state.images
+    next_index = rem(state.current_index + 1, max(length(images), 1))
+    current_image_data = read_image_data(images, next_index)
+
+    if current_image_data do
+      Phoenix.PubSub.broadcast(
+        CalibrationApp.PubSub,
+        @pubsub_topic,
+        {:image_update, current_image_data}
+      )
+    end
+
+    Process.send_after(self(), :tick, @frame_interval_ms)
+
+    {:noreply, %{state | current_index: next_index, current_image_data: current_image_data}}
+  end
+
+  # ── Helpers ──────────────────────────────────────────────────────────────────
+
+  defp images_dir do
+    Path.join([
+      :code.priv_dir(:calibration_app) |> List.to_string(),
+      "static",
+      "images",
+      "free_rotation"
+    ])
+  end
+
+  defp load_images do
+    path = images_dir()
+
+    case File.ls(path) do
+      {:ok, files} ->
+        files
+        |> Enum.filter(&String.match?(&1, ~r/\.(png|jpg|jpeg|gif)$/i))
+        |> Enum.sort()
+        |> Enum.map(&Path.join(path, &1))
+
+      {:error, _} ->
+        []
+    end
+  end
+
+  defp read_image_data([], _index), do: nil
+
+  defp read_image_data(images, index) do
+    case Enum.at(images, index) do
+      nil ->
+        nil
+
+      path ->
+        case File.read(path) do
+          {:ok, data} ->
+            ext = path |> Path.extname() |> String.downcase() |> String.trim_leading(".")
+            mime = if ext in ["jpg", "jpeg"], do: "image/jpeg", else: "image/#{ext}"
+            "data:#{mime};base64,#{Base.encode64(data)}"
+
+          {:error, _} ->
+            nil
+        end
+    end
+  end
+end
