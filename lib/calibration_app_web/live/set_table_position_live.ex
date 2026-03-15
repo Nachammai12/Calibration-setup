@@ -74,6 +74,15 @@ defmodule CalibrationAppWeb.SetTablePositionLive do
     {:noreply, socket}
   end
 
+  # ── Scan Angle input ───────────────────────────────────────────────────────
+
+  @impl true
+  def handle_event("update_scan_angle", %{"value" => val}, socket) do
+    {:noreply, assign(socket, :scan_angle, val)}
+  end
+
+  # ── Coarse / Fine timer callbacks ─────────────────────────────────────────
+
   @impl true
   def handle_info(:coarse_done, socket) do
     Process.send_after(self(), :fine_done, @fine_duration_ms)
@@ -96,13 +105,6 @@ defmodule CalibrationAppWeb.SetTablePositionLive do
   @impl true
   def handle_info({:image_update, image_data}, socket) do
     {:noreply, assign(socket, :current_image_data, image_data)}
-  end
-
-  # ── Scan Angle input ───────────────────────────────────────────────────────
-
-  @impl true
-  def handle_event("update_scan_angle", %{"value" => val}, socket) do
-    {:noreply, assign(socket, :scan_angle, val)}
   end
 
   # ── Helpers ────────────────────────────────────────────────────────────────
