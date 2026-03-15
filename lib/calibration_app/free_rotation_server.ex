@@ -32,7 +32,7 @@ defmodule CalibrationApp.FreeRotationServer do
   @impl true
   def init(:ok) do
     images = load_images()
-    current_image_data = read_image_data(images, 0)
+    current_image_data = Enum.at(images, 0)
 
     {:ok,
      %{
@@ -76,7 +76,7 @@ defmodule CalibrationApp.FreeRotationServer do
   def handle_info(:tick, state) do
     images = state.images
     next_index = rem(state.current_index + 1, max(length(images), 1))
-    current_image_data = read_image_data(images, next_index)
+    current_image_data = Enum.at(images, next_index)
 
     if current_image_data do
       Phoenix.PubSub.broadcast(
@@ -110,30 +110,23 @@ defmodule CalibrationApp.FreeRotationServer do
         files
         |> Enum.filter(&String.match?(&1, ~r/\.(png|jpg|jpeg|gif)$/i))
         |> Enum.sort()
-        |> Enum.map(&Path.join(path, &1))
+        |> Enum.map(&encode_image(Path.join(path, &1)))
+        |> Enum.reject(&is_nil/1)
 
       {:error, _} ->
         []
     end
   end
 
-  defp read_image_data([], _index), do: nil
+  defp encode_image(path) do
+    case File.read(path) do
+      {:ok, data} ->
+        ext = path |> Path.extname() |> String.downcase() |> String.trim_leading(".")
+        mime = if ext in ["jpg", "jpeg"], do: "image/jpeg", else: "image/#{ext}"
+        "data:#{mime};base64,#{Base.encode64(data)}"
 
-  defp read_image_data(images, index) do
-    case Enum.at(images, index) do
-      nil ->
+      {:error, _} ->
         nil
-
-      path ->
-        case File.read(path) do
-          {:ok, data} ->
-            ext = path |> Path.extname() |> String.downcase() |> String.trim_leading(".")
-            mime = if ext in ["jpg", "jpeg"], do: "image/jpeg", else: "image/#{ext}"
-            "data:#{mime};base64,#{Base.encode64(data)}"
-
-          {:error, _} ->
-            nil
-        end
     end
   end
 end
