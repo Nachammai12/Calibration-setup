@@ -11,8 +11,7 @@ defmodule CalibrationApp.Application do
       CalibrationAppWeb.Telemetry,
       {DNSCluster, query: Application.get_env(:calibration_app, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: CalibrationApp.PubSub},
-      # Start a worker by calling: CalibrationApp.Worker.start_link(arg)
-      # {CalibrationApp.Worker, arg},
+      CalibrationApp.FreeRotationServer,
       # Start to serve requests, typically the last entry
       CalibrationAppWeb.Endpoint
     ]
