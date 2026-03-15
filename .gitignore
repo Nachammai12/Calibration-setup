@@ -35,3 +35,7 @@ calibration_app-*.tar
 npm-debug.log
 /assets/node_modules/
 
+# Python cache files
+**/__pycache__/
+**/*.pyc
+

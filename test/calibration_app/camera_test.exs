@@ -3,9 +3,13 @@ defmodule CalibrationApp.CameraTest do
   alias CalibrationApp.Camera
 
   @test_image_path Path.join([
-    :code.priv_dir(:calibration_app) |> List.to_string(),
-    "static", "images", "primary_alignment", "live_mode", "1-angular_more.png"
-  ])
+                     :code.priv_dir(:calibration_app) |> List.to_string(),
+                     "static",
+                     "images",
+                     "primary_alignment",
+                     "live_mode",
+                     "1-angular_more.png"
+                   ])
 
   test "get_frame/1 returns {:ok, data_uri} for a real image" do
     assert {:ok, data} = Camera.get_frame(@test_image_path)

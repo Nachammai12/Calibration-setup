@@ -43,6 +43,37 @@ defmodule CalibrationApp.PythonBridge do
     e -> {:error, {:exception, Exception.message(e)}}
   end
 
+  @doc """
+  Runs the auto-exposure Python script for one iteration.
+  Returns `{:ok, %{new_exposure: integer, good_exposure: boolean}}` or `{:error, reason}`.
+  """
+  @spec run_auto_exposure(
+          image_path :: String.t(),
+          avg_intensity :: float(),
+          current_exposure :: integer()
+        ) :: {:ok, %{new_exposure: integer(), good_exposure: boolean()}} | {:error, term()}
+  def run_auto_exposure(image_path, avg_intensity, current_exposure) do
+    payload =
+      Jason.encode!(%{
+        image_path: image_path,
+        avg_intensity: avg_intensity,
+        current_exposure: current_exposure
+      }) <> "\n"
+
+    port =
+      Port.open({:spawn_executable, System.find_executable("python3")}, [
+        :binary,
+        :use_stdio,
+        :exit_status,
+        {:args, [auto_exposure_script()]}
+      ])
+
+    Port.command(port, payload)
+    collect_auto_exposure_output(port, "")
+  rescue
+    e -> {:error, {:exception, Exception.message(e)}}
+  end
+
   # ── Private ─────────────────────────────────────────────────────────────────
 
   defp collect_port_output(port, acc) do
@@ -83,5 +114,45 @@ defmodule CalibrationApp.PythonBridge do
     :code.priv_dir(:calibration_app)
     |> List.to_string()
     |> Path.join("python/heatmap/wrapper.py")
+  end
+
+  defp auto_exposure_script do
+    :code.priv_dir(:calibration_app)
+    |> List.to_string()
+    |> Path.join("python/auto_exposure/wrapper.py")
+  end
+
+  defp collect_auto_exposure_output(port, acc) do
+    receive do
+      {^port, {:data, data}} ->
+        collect_auto_exposure_output(port, acc <> data)
+
+      {^port, {:exit_status, 0}} ->
+        parse_auto_exposure_response(acc)
+
+      {^port, {:exit_status, code}} ->
+        {:error, {:python_exit, code}}
+    after
+      5000 ->
+        Port.close(port)
+        {:error, :timeout}
+    end
+  end
+
+  defp parse_auto_exposure_response(output) do
+    output
+    |> String.trim()
+    |> Jason.decode()
+    |> case do
+      {:ok, %{"new_exposure" => exp, "good_exposure" => good}}
+      when is_integer(exp) and is_boolean(good) ->
+        {:ok, %{new_exposure: exp, good_exposure: good}}
+
+      {:ok, other} ->
+        {:error, {:unexpected_response, other}}
+
+      {:error, reason} ->
+        {:error, {:json_decode, reason}}
+    end
   end
 end

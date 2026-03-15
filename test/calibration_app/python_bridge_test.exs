@@ -4,9 +4,13 @@ defmodule CalibrationApp.PythonBridgeTest do
   alias CalibrationApp.PythonBridge
 
   @test_image_path Path.join([
-    :code.priv_dir(:calibration_app) |> List.to_string(),
-    "static", "images", "primary_alignment", "heatmap_on", "heatmap_1-angular_more.png"
-  ])
+                     :code.priv_dir(:calibration_app) |> List.to_string(),
+                     "static",
+                     "images",
+                     "primary_alignment",
+                     "heatmap_on",
+                     "heatmap_1-angular_more.png"
+                   ])
 
   test "run_heatmap/1 returns {:ok, path} for a valid image path" do
     assert {:ok, result_path} = PythonBridge.run_heatmap(@test_image_path)

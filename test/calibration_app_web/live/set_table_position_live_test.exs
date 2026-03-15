@@ -165,7 +165,9 @@ defmodule CalibrationAppWeb.SetTablePositionLiveTest do
   end
 
   describe "coarse/fine scan angle validation" do
-    test "coarse/fine start button is enabled by default (default scan angle is 10)", %{conn: conn} do
+    test "coarse/fine start button is enabled by default (default scan angle is 10)", %{
+      conn: conn
+    } do
       {:ok, view, _html} = live(conn, ~p"/set-table-position")
 
       # scan_angle defaults to "10", so button is enabled on mount

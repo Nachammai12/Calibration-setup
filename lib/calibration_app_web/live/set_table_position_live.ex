@@ -269,7 +269,11 @@ defmodule CalibrationAppWeb.SetTablePositionLive do
 
               <div class="flex flex-col gap-1">
                 <label for="scan-angle-input" class="text-xs text-[#888]">Scan Angle (+/-)</label>
-                <form id="scan-angle-form" phx-change="update_scan_angle" phx-submit="update_scan_angle">
+                <form
+                  id="scan-angle-form"
+                  phx-change="update_scan_angle"
+                  phx-submit="update_scan_angle"
+                >
                   <input
                     id="scan-angle-input"
                     type="text"

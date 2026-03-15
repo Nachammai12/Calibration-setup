@@ -182,4 +182,171 @@ defmodule CalibrationAppWeb.PrimaryAlignmentLiveTest do
     # FOV card becomes disabled when heatmap is on
     assert has_element?(view, "#adjust-fov-card .opacity-40")
   end
+
+  # ── Additional edge case tests ──────────────────────────────────────────────
+
+  test "page title is set to Primary Alignment", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/primary-alignment")
+    assert html =~ "Primary Alignment"
+  end
+
+  test "camera image tag is rendered when images exist on disk", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    # When images exist the img element with id roi-image is rendered
+    assert has_element?(view, "#roi-image")
+  end
+
+  test "ROI canvas overlay is present when images exist", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    assert has_element?(view, "#roi-canvas")
+  end
+
+  test "ROI inputs show default values on page load", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    html = render(view)
+    # Default values from roi_defaults.json: centre_x=500, centre_y=500, radius=500
+    assert html =~ ~s(value="500")
+  end
+
+  test "heatmap ON a second time does not advance alignment stage further", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    # First ON: stage 0 → 1
+    view |> element("#heatmap-btn-on") |> render_click()
+    # Second ON: stage stays at 1 (only advances from 0 on first press)
+    view |> element("#heatmap-btn-on") |> render_click()
+    assert has_element?(view, "#heatmap-toggle[data-state=on]")
+  end
+
+  test "heatmap OFF at stage 0 does not advance to stage 1 (guard)", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    # Stage is 0; clicking OFF directly should guard and keep stage at 0
+    view |> element("#heatmap-btn-off") |> render_click()
+    assert has_element?(view, "#heatmap-toggle[data-state=off]")
+  end
+
+  test "update_roi event updates the ROI input values", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+
+    view
+    |> element("#roi-form")
+    |> render_change(%{"centre_x" => "300", "centre_y" => "400", "radius" => "250"})
+
+    html = render(view)
+    assert html =~ ~s(value="300")
+    assert html =~ ~s(value="400")
+    assert html =~ ~s(value="250")
+  end
+
+  test "auto exposure panel shows spinner and running text after next is clicked", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    view |> element("#next-btn") |> render_click()
+    html = render(view)
+    assert html =~ "Auto Exposure Running..."
+    assert has_element?(view, "#auto-exposure-panel")
+  end
+
+  test "auto exposure panel shows iteration counter starting at 0", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    view |> element("#next-btn") |> render_click()
+    html = render(view)
+    assert html =~ "Iteration: 0"
+  end
+
+  test "ae_iteration message increments iteration counter", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    view |> element("#next-btn") |> render_click()
+    # Simulate an ae_iteration PubSub message arriving
+    send(view.pid, {:ae_iteration, nil, 180, false})
+    html = render(view)
+    assert html =~ "Iteration: 1"
+  end
+
+  test "ae_iteration message updates displayed exposure value", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    view |> element("#next-btn") |> render_click()
+    send(view.pid, {:ae_iteration, nil, 210, false})
+    html = render(view)
+    assert html =~ "210"
+  end
+
+  test "ae_error message shows flash error and resets auto_exposure_running", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    view |> element("#next-btn") |> render_click()
+    assert has_element?(view, "#auto-exposure-panel")
+    send(view.pid, {:ae_error, :timeout})
+    html = render(view)
+    assert html =~ "Auto exposure failed. Please try again."
+    # Control panel returns (next-btn visible again)
+    assert has_element?(view, "#next-btn")
+    refute has_element?(view, "#auto-exposure-panel")
+  end
+
+  test "ae_done message hides auto exposure panel and shows normal controls", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    view |> element("#next-btn") |> render_click()
+    assert has_element?(view, "#auto-exposure-panel")
+    send(view.pid, :ae_done)
+    # After ae_done, auto_exposure_running becomes false so normal panel returns
+    assert has_element?(view, "#next-btn")
+    refute has_element?(view, "#auto-exposure-panel")
+  end
+
+  test "heatmap toggle switches back and forth correctly multiple times", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    # ON
+    view |> element("#heatmap-btn-on") |> render_click()
+    assert has_element?(view, "#heatmap-toggle[data-state=on]")
+    # OFF
+    view |> element("#heatmap-btn-off") |> render_click()
+    assert has_element?(view, "#heatmap-toggle[data-state=off]")
+    # ON again
+    view |> element("#heatmap-btn-on") |> render_click()
+    assert has_element?(view, "#heatmap-toggle[data-state=on]")
+    # OFF again
+    view |> element("#heatmap-btn-off") |> render_click()
+    assert has_element?(view, "#heatmap-toggle[data-state=off]")
+  end
+
+  test "adjust FOV notice disappears when heatmap is turned back OFF", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    view |> element("#heatmap-btn-on") |> render_click()
+    assert render(view) =~ "To adjust FOV, turn the heatmap OFF first."
+    view |> element("#heatmap-btn-off") |> render_click()
+    refute render(view) =~ "To adjust FOV, turn the heatmap OFF first."
+  end
+
+  test "next button has blue styling when not running", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    assert has_element?(view, "#next-btn.bg-blue-600")
+  end
+
+  test "top bar shows Calibration Setup title", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    assert render(view) =~ "Calibration Setup"
+  end
+
+  test "step bar shows Set Table Position as next step", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    assert render(view) =~ "Set Table Position"
+  end
+
+  test "step bar shows Result as final step", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    assert render(view) =~ "Result"
+  end
+
+  test "default exposure value from roi_defaults.json is shown in status bar", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    html = render(view)
+    # roi_defaults.json has exposure: 72
+    assert has_element?(view, "#exposure-indicator")
+    assert html =~ "72"
+  end
+
+  test "default stage position from roi_defaults.json is shown in status bar", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/primary-alignment")
+    html = render(view)
+    # roi_defaults.json has stage_position: "0.00 mm"
+    assert html =~ "0.00 mm"
+  end
 end

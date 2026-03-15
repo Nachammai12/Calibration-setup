@@ -64,7 +64,9 @@ defmodule CalibrationApp.HeatmapPipeline do
   defp base_dir do
     Path.join([
       :code.priv_dir(:calibration_app) |> List.to_string(),
-      "static", "images", "primary_alignment"
+      "static",
+      "images",
+      "primary_alignment"
     ])
   end
 end
